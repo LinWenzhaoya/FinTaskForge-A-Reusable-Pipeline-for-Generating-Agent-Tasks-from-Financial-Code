@@ -1,0 +1,35 @@
+instance_id: <repo>_<NNN>
+repo: <owner>/<repo>
+source_issue: <issue_number>       # 出题方记录, 不进 task/
+base_commit: <fix前commit>
+fix_commit: <官方修复commit>        # 参考, 不进 task/
+
+domain: <portfolio_optimization | risk | calendar | ...>
+domain_necessity: <D0|D1|D2|D3>    # 优先入库 D2-D3
+difficulty: <easy|medium|hard>
+
+# ============ 验收配置(通用 Runner pipeline/validate_case.py 读取) ============
+environment:
+  venv: envs/<repo>                            # 相对 benchmark 根目录; 同仓库多 case 共用
+  install_command: "pip install -e . --no-deps -q"
+
+validation:
+  patch_file: agent_run/patch.applyable.diff
+  allowed_patch_paths:                         # patch 允许触碰的源码路径
+    - <src/.../目标文件.py>
+  forbidden_patch_paths:                       # patch 禁止触碰(测试文件); 命中判作弊
+    - tests/
+  public_test_command: "python -m pytest tests/<公开测试>.py -q -p no:cacheprovider"
+  baseline_public_expect: fail                 # 修复前公开测试应失败
+  hidden_test_file: grader/hidden_tests/<隐藏测试>.py
+  hidden_test_command: "python -m pytest tests/<隐藏测试>.py -q -p no:cacheprovider"
+  timeout_seconds: 600
+
+oracle_type: behavioral_tests
+public_tests: <n>
+hidden_tests: <n>                  # 至少含 target + anti-hack + regression
+network_required: <true|false>
+external_services_required: <true|false>
+
+status: <candidate|reproducible|rejected>
+validated: <true|false>

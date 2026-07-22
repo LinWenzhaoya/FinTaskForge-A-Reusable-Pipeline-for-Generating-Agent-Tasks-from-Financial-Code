@@ -1,0 +1,57 @@
+instance_id: skfolio_001
+repo: skfolio/skfolio
+source_issue: 196          # 出题方记录, 不进 task/
+base_commit: 5d673e7       # 修复前
+fix_commit: c2cc1ad        # 官方修复(参考, 不进 task/)
+
+domain: portfolio_optimization
+domain_necessity: D2       # D0纯工程 / D1金融知识有帮助 / D2不懂金融很难修 / D3正确实现由金融定义决定
+difficulty: medium
+
+# ============ 验收配置(通用 Runner pipeline/validate_case.py 读取) ============
+environment_id: skfolio_py312_v1
+external_repo: ../external_workspaces/skfolio
+environment:
+  # Case 环境的 python 解释器(与 Runner 自身环境分离; 相对 benchmark 根目录)
+  python: .envs/skfolio/bin/python
+  install_command: "pip install -e . --no-deps -q"
+
+validation:
+  patch_file: agent_run/patch.applyable.diff
+  # patch 允许触碰的源码路径(白名单, 支持 glob); 有 touched 路径不在白名单 -> 拒绝
+  allowed_patch_paths:
+    - "src/skfolio/optimization/convex/_mean_risk.py"
+  # patch 禁止触碰的路径(黑名单); 命中 -> 判作弊
+  forbidden_patch_paths:
+    - "tests/**"
+
+  baseline:
+    public_test_command: "python -m pytest tests/test_public_reproduction.py -q -p no:cacheprovider"
+    expected_exit_codes: [1]                 # 目标断言失败的正常 pytest 退出码
+    required_output_patterns:                # 必须出现(证明是目标 bug)
+      - "Cannot optimize for Maximum Ratio"
+    forbidden_output_patterns:               # 不得出现(否则是环境/收集问题, 非目标 bug)
+      - "ImportError"
+      - "ModuleNotFoundError"
+      - "no tests ran"
+      - "collected 0 items"
+      - "TIMEOUT"
+
+  public_test_command: "python -m pytest tests/test_public_reproduction.py -q -p no:cacheprovider"
+
+  hidden_tests:
+    copies:
+      - source: grader/hidden_tests/test_hidden_regression.py
+        destination: tests/test_hidden_regression.py
+    command: "python -m pytest tests/test_hidden_regression.py -q -p no:cacheprovider"
+
+  timeout_seconds: 600
+
+oracle_type: behavioral_tests
+public_tests: 1
+hidden_tests: 3
+network_required: false
+external_services_required: false
+
+status: reproducible
+validated: true

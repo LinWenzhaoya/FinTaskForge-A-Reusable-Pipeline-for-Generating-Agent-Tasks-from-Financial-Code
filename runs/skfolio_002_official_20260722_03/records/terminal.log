@@ -1,0 +1,1263 @@
+$ ls -la <WORKSPACE>
+total 24
+drwxr-xr-x@  6 user  wheel   192 Jul 22 16:53 .
+drwxr-xr-x@  5 user  wheel   160 Jul 22 16:53 ..
+-rw-r--r--@  1 user  wheel  1731 Jul 22 16:53 README.md
+drwxr-xr-x@ 17 user  wheel   544 Jul 22 16:53 repo
+-rw-r--r--@  1 user  wheel   619 Jul 22 16:53 requirements-pinned.txt
+-rw-r--r--@  1 user  wheel  1375 Jul 22 16:53 TASK.md
+1	# 任务:修复一个风险度量的计算错误
+2	
+3	## 背景
+4	
+5	本库的风险度量模块 `skfolio.measures` 提供了 `variance`(方差)等函数,支持传入 `sample_weight` 对不同观测样本加权(常用于对近期数据赋予更高权重)。
+6	
+7	某用户报告:当传入**非均匀** `sample_weight` 时,`variance` 的计算结果不正确。以一组带非均匀权重的收益率为例,`variance(returns, sample_weight=w, biased=True)` 返回的数值,与按加权方差参考定义独立计算出的结果**不一致**。
+8	
+9	公开测试 `tests/test_public_reproduction.py` 复现了这一差异。
+10	
+11	## 为什么这被认为是一个 bug
+12	
+13	带 `sample_weight` 的方差应当与加权方差的标准参考定义一致。当前实现在权重非均匀时的返回值偏离了该参考定义。
+14	
+15	用户期望的行为是:`variance(returns, sample_weight=w, biased=True)` 的结果等于加权方差参考定义给出的数值(见公开测试中独立计算的 `expected`)。
+16	
+17	## 你的任务
+18	
+19	1. 复现问题(运行 `tests/test_public_reproduction.py`)。
+20	2. 定位根本原因。
+21	3. 实现最小的、针对根因的修复。
+22	4. 确保修复不破坏:无权重时的方差行为、以及模块内其他同类度量的一致性。
+23	5. 运行测试,报告改动的文件和运行的测试。
+24	
+25	请阅读 `README.md` 了解环境搭建、测试运行方式和提交约束。
+26	
+1	# 环境与运行说明
+2	
+3	本项目是一个投资组合优化库(基于 scikit-learn 风格 API)的源码快照。你的任务见 `TASK.md`。
+4	
+5	## 环境搭建
+6	
+7	要求 Python 3.12。本材料布局为:工作目录根下有 `requirements-pinned.txt` 与 `repo/`(源码及 `pyproject.toml` 在 `repo/` 内)。建议使用隔离虚拟环境,在**工作目录根**执行:
+8	
+9	```bash
+10	python3.12 -m venv .venv
+11	source .venv/bin/activate
+12	pip install --upgrade pip setuptools wheel
+13	pip install -r requirements-pinned.txt
+14	pip install -e ./repo --no-deps
+15	```
+16	
+17	> 注意:请使用 `requirements-pinned.txt` 中锁定的依赖版本。仓库 `repo/pyproject.toml` 中的依赖只写了下限,直接安装最新依赖会导致底层凸优化库(cvxpy)API 不兼容而无法 import。`--no-deps` 用于避免 pip 覆盖已锁定的版本;可编辑安装的目标是 `./repo`。
+18	
+19	## 运行公开测试
+20	
+21	复现问题的公开测试位于 `repo/tests/`。进入 `repo/` 运行:
+22	
+23	```bash
+24	cd repo
+25	python -m pytest tests/test_public_reproduction.py -v
+26	```
+27	
+28	在你修复之前,该测试应当失败(会观察到任务中描述的异常)。
+29	
+30	## 你需要提交的内容
+31	
+32	1. 你对源码的修改(patch / diff,或直接修改后的文件)。
+33	2. 一段说明:你定位到的根因是什么、为什么这样修、改了哪些文件。
+34	3. 你运行过的测试及其结果。
+35	
+36	## 约束
+37	
+38	- **不允许**通过修改、删除或跳过测试来让测试通过。
+39	- **不允许**用 `try/except` 吞掉异常、或对特定输入硬编码返回值来蒙混。
+40	- 修复应当是最小的、针对根因的改动,并且不能破坏其他优化模型原本合理的行为。
+41	- 只使用本仓库内的代码与 `requirements-pinned.txt` 的依赖,不需要联网。
+42	
+1	"""
+2	公开复现测试: variance 传入非均匀 sample_weight 时的行为。
+3	
+4	现象: 给定一组非均匀权重, variance(returns, sample_weight=w, biased=True)
+5	的返回值与按加权方差参考定义独立计算出的结果不一致。修复前本测试失败。
+6	"""
+7	import numpy as np
+8	from skfolio.measures import variance
+9	
+10	
+11	def test_weighted_variance_matches_reference():
+12	    r = np.array([0.01, -0.02, 0.03, -0.01, 0.02])
+13	    w = np.array([0.4, 0.3, 0.2, 0.05, 0.05])
+14	    w = w / w.sum()
+15	
+16	    got = variance(r, sample_weight=w, biased=True)
+17	
+18	    # 加权(有偏)方差的参考值, 独立于被测实现
+19	    ref_center = np.sum(w * r)
+20	    expected = np.sum(w * (r - ref_center) ** 2)
+21	
+22	    assert np.isclose(got, expected), (
+23	        f"weighted variance result mismatch: got={got}, expected={expected}"
+24	    )
+25	
+$ find <WORKSPACE>/repo/src -name "*.py" | grep -i measure
+<WORKSPACE>/repo/src/skfolio/measures/__init__.py
+<WORKSPACE>/repo/src/skfolio/measures/_enums.py
+<WORKSPACE>/repo/src/skfolio/measures/_measures.py
+1	"""Module that includes all Measures functions used across `skfolio`."""
+2	
+3	# Copyright (c) 2023
+4	# Author: Hugo Delatte <delatte.hugo@gmail.com>
+5	# SPDX-License-Identifier: BSD-3-Clause
+6	# Gini mean difference and OWA GMD weights features are derived
+7	# from Riskfolio-Lib, Copyright (c) 2020-2023, Dany Cajas, Licensed under BSD 3 clause.
+8	
+9	import numpy as np
+10	import numpy.typing as npt
+11	import scipy.optimize as sco
+12	
+13	
+14	def mean(
+15	    returns: npt.ArrayLike, sample_weight: np.ndarray | None = None
+16	) -> float | np.ndarray:
+17	    """Compute the mean.
+18	
+19	    Parameters
+20	    ----------
+21	    returns : ndarray of shape (n_observations,) or (n_observations, n_assets)
+22	        Array of return values.
+23	
+24	    sample_weight : ndarray of shape (n_observations,), optional
+25	        Sample weights for each observation. If None, equal weights are assumed.
+26	
+27	    Returns
+28	    -------
+29	    value : float or ndarray of shape (n_assets,)
+30	        The computed mean.
+31	        If `returns` is a 1D-array, the result is a float.
+32	        If `returns` is a 2D-array, the result is a ndarray of shape (n_assets,).
+33	    """
+34	    if sample_weight is None:
+35	        return np.mean(returns, axis=0)
+36	    return sample_weight @ returns
+37	
+38	
+39	def mean_absolute_deviation(
+40	    returns: npt.ArrayLike,
+41	    min_acceptable_return: float | np.ndarray | None = None,
+42	    sample_weight: np.ndarray | None = None,
+43	) -> float | np.ndarray:
+44	    """Compute the mean absolute deviation (MAD).
+45	
+46	    Parameters
+47	    ----------
+48	    returns : ndarray of shape (n_observations,) or (n_observations, n_assets)
+49	        Array of return values.
+50	
+51	    min_acceptable_return : float or ndarray of shape (n_assets,) optional
+52	        Minimum acceptable return. It is the return target to distinguish "downside" and
+53	        "upside" returns. The default (`None`) is to use the returns' mean.
+54	
+55	    sample_weight : ndarray of sha
+$ which python3.12 && python3.12 --version
+/opt/homebrew/bin/python3.12
+Python 3.12.13
+$ python3.12 -m venv .venv && source .venv/bin/activate && pip install --upgrade pip setuptools wheel -q && pip install -r requirements-pinned.txt -q && pip install -e ./repo --no-deps -q && echo "INSTALL_DONE"
+INSTALL_DONE
+$ source .venv/bin/activate && cd repo && python -m pytest tests/test_public_reproduction.py -v 2>&1 | tail -30
+<WORKSPACE>/.venv/bin/python: No module named pytest
+$ source .venv/bin/activate && pip install pytest -q && cd repo && python -m pytest tests/test_public_reproduction.py -v 2>&1 | tail -30
+Exit code 127
+(eval):source:1: no such file or directory: .venv/bin/activate
+$ source <WORKSPACE>/.venv/bin/activate && pip install pytest -q && python -m pytest tests/test_public_reproduction.py -v 2>&1 | tail -30
+collecting ... collected 1 item
+
+tests/test_public_reproduction.py::test_weighted_variance_matches_reference FAILED [100%]
+
+=================================== FAILURES ===================================
+___________________ test_weighted_variance_matches_reference ___________________
+
+    def test_weighted_variance_matches_reference():
+        r = np.array([0.01, -0.02, 0.03, -0.01, 0.02])
+        w = np.array([0.4, 0.3, 0.2, 0.05, 0.05])
+        w = w / w.sum()
+    
+        got = variance(r, sample_weight=w, biased=True)
+    
+        # 加权(有偏)方差的参考值, 独立于被测实现
+        ref_center = np.sum(w * r)
+        expected = np.sum(w * (r - ref_center) ** 2)
+    
+>       assert np.isclose(got, expected), (
+            f"weighted variance result mismatch: got={got}, expected={expected}"
+        )
+E       AssertionError: weighted variance result mismatch: got=0.0003470000000000001, expected=0.00034475
+E       assert False
+E        +  where False = <function isclose at 0x106c037b0>(0.0003470000000000001, 0.00034475)
+E        +    where <function isclose at 0x106c037b0> = np.isclose
+
+tests/test_public_reproduction.py:22: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_public_reproduction.py::test_weighted_variance_matches_reference
+============================== 1 failed in 0.06s ===============================
+The file <WORKSPACE>/repo/src/skfolio/measures/_measures.py has been updated successfully. (file state is current in your context — no need to Read it back)
+$ source <WORKSPACE>/.venv/bin/activate && ls tests/ && echo "---" && grep -rl "measures\|variance\|semi_variance" tests/ 2>/dev/null
+__init__.py
+__pycache__
+conftest.py
+test_cluster
+test_dataset
+test_distance
+test_distribution
+test_measures
+test_metrics
+test_model_selection
+test_moment
+test_optimization
+test_pipeline
+test_population
+test_portfolio
+test_pre_selection
+test_preprocessing
+test_prior
+test_public_reproduction.py
+test_uncertainty_set
+test_utils
+---
+tests/test_model_selection/test_validation.py
+tests/test_portfolio/test_multi_period_portfolio.py
+tests/test_portfolio/test_portfolio.py
+tests/test_metrics/test_scorer.py
+tests/test_measures/test_measures.py
+tests/test_utils/test_stats.py
+tests/test_pre_selection/test_drop_zero_variance.py
+tests/test_moment/test_covariance/test_implied_covariance.py
+tests/test_moment/test_covariance/test_covariance.py
+tests/test_moment/test_expected_returns/test_expected_returns.py
+tests/__pycache__/test_public_reproduction.cpython-312-pytest-9.1.1.pyc
+tests/__pycache__/test_public_reproduction.cpython-312.pyc
+tests/test_public_reproduction.py
+tests/test_pipeline/test_pipeline.py
+tests/test_population/test_population.py
+tests/test_prior/test_entropy_pooling.py
+tests/test_prior/test_factor_model.py
+tests/test_prior/test_empirical.py
+tests/test_prior/test_synthetic_data.py
+tests/test_prior/test_black_litterman.py
+tests/test_prior/test_opinion_pooling.py
+tests/test_distance/test_distance.py
+tests/test_uncertainty_set/test_empirical.py
+tests/test_uncertainty_set/test_bootstrap.py
+tests/test_optimization/test_cluster/test_hierarchical/test_herc.py
+tests/test_optimization/test_cluster/test_hierarchical/test_hrp.py
+tests/test_optimization/test_cluster/test_nco.py
+tests/test_optimization/test_naive/test_naive.py
+tests/test_optimization/test_ensemble/test_stacking.py
+tests/test_optimization/test_convex/test_risk_budgeting.py
+tests/test_optimization/test_convex/test_distributionally_robust_cvar.py
+tests/test_optimization/test_convex/test_maximum_diversification.py
+tests/test_optimization/test_convex/test_mean_risk.py
+$ source <WORKSPACE>/.venv/bin/activate && grep -n "sample_weight\|semi_variance\|def test" tests/test_measures/test_measures.py | head -60
+41:def sample_weight(request, returns_1d):
+45:    sample_weight = rng.random(len(returns_1d))
+46:    sample_weight /= sample_weight.sum()
+47:    return sample_weight
+51:    "returns,sample_weight,expected",
+58:    indirect=["returns", "sample_weight"],
+60:def test_mean(returns, sample_weight, expected):
+62:        skm.mean(returns, sample_weight=sample_weight), expected
+67:def test_mean_sample_weight(returns):
+70:        skm.mean(returns, sample_weight=q),
+77:    "returns,min_acceptable_return,sample_weight,expected",
+88:    indirect=["returns", "sample_weight"],
+90:def test_mean_absolute_deviation(
+91:    returns, min_acceptable_return, sample_weight, expected
+97:            sample_weight=sample_weight,
+105:def test_mean_absolute_deviation_sample_weight(returns, min_acceptable_return):
+109:            returns, min_acceptable_return=min_acceptable_return, sample_weight=q
+119:    "returns,min_acceptable_return,sample_weight,expected",
+130:    indirect=["returns", "sample_weight"],
+132:def test_first_lower_partial_moment(
+133:    returns, min_acceptable_return, sample_weight, expected
+139:            sample_weight=sample_weight,
+147:def test_first_lower_partial_moment_sample_weight(returns, min_acceptable_return):
+151:            returns, min_acceptable_return=min_acceptable_return, sample_weight=q
+161:    "returns,sample_weight,biased,expected",
+172:    indirect=["returns", "sample_weight"],
+174:def test_variance(returns, sample_weight, biased, expected):
+176:        skm.variance(returns, sample_weight=sample_weight, biased=biased), expected, 10
+182:def test_variance_sample_weight(returns, biased):
+185:        skm.variance(returns, sample_weight=q, biased=biased),
+192:    "returns,min_acceptable_return,sample_weight,biased,expected",
+207:    indirect=["returns", "sample_weight"],
+209:def test_semi_variance(returns, min_acceptable_return, sample_weight, biased, expected):
+211:        skm.semi_variance(
+214:            sample_weight=sample_weight,
+225:def test_semi_var
+155	        ),
+156	        10,
+157	    )
+158	
+159	
+160	@pytest.mark.parametrize(
+161	    "returns,sample_weight,biased,expected",
+162	    [
+163	        ("1d", False, True, 0.0007478807),
+164	        ("1d", False, False, 0.0007479707),
+165	        ("1d", True, True, 0.0007406478),
+166	        ("1d", True, False, 0.0007407669),
+167	        ("2d", False, True, [0.0007478807, 0.0015151899]),
+168	        ("2d", False, False, [0.0007479707, 0.00151537226]),
+169	        ("2d", True, True, [0.0007406478, 0.00151843891]),
+170	        ("2d", True, False, [0.0007407669, 0.00151868320]),
+171	    ],
+172	    indirect=["returns", "sample_weight"],
+173	)
+174	def test_variance(returns, sample_weight, biased, expected):
+175	    np.testing.assert_almost_equal(
+176	        skm.variance(returns, sample_weight=sample_weight, biased=biased), expected, 10
+177	    )
+178	
+179	
+180	@pytest.mark.parametrize("returns", ["1d", "2d"], indirect=True)
+181	@pytest.mark.parametrize("biased", [True, False])
+182	def test_variance_sample_weight(returns, biased):
+183	    q = np.ones(len(returns)) / len(returns)
+184	    np.testing.assert_almost_equal(
+185	        skm.variance(returns, sample_weight=q, biased=biased),
+186	        skm.variance(returns, biased=biased),
+187	        10,
+188	    )
+189	
+190	
+191	@pytest.mark.parametrize(
+192	    "returns,min_acceptable_return,sample_weight,biased,expected",
+193	    [
+194	        ("1d", None, False, False, 0.0003683217),
+195	        ("1d", None, False, True, 0.0003682774),
+196	        ("1d", None, True, False, 0.0003673454),
+197	        ("1d", None, True, True, 0.0003672863),
+198	        ("1d", 0.0, False, False, 0.0003480616),
+199	        ("1d", 0.0, False, True, 0.0003480197),
+200	        ("2d", None, False, False, [0.0003683217, 0.0007148891]),
+201	        ("2d", None, False, True, [0.0003682774, 0.0007148031]),
+202	        ("2d", None, True, False, [0.0003673454, 0.0007146719]),
+203	        ("2d", None, True, True, [0.0003672863, 0.0007145570]),
+204	        (
+$ source <WORKSPACE>/.venv/bin/activate && python -m pytest tests/test_public_reproduction.py tests/test_measures/ -v 2>&1 | tail -60
+sample_weight = array([0.000154, 0.000065, 0.00001 , ..., 0.00014 , 0.000072, 0.000213])
+expected = [25.6115616, 12.7133981]
+
+    @pytest.mark.parametrize(
+        "returns,sample_weight,expected",
+        [
+            ("1d", False, 26.3046784),
+            ("1d", True, 25.6115615),
+            ("2d", False, [26.3046784, 12.8538355]),
+            ("2d", True, [25.6115616, 12.7133981]),
+        ],
+        indirect=["returns", "sample_weight"],
+    )
+    def test_kurtosis(returns, sample_weight, expected):
+>       np.testing.assert_almost_equal(
+            skm.kurtosis(returns, sample_weight=sample_weight), expected
+        )
+
+tests/test_measures/test_measures.py:413: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:81: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:81: in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (<function assert_array_almost_equal.<locals>.compare at 0x120c5f240>, array([25.612578, 12.71346 ]), [25.6115616, 12.7133981])
+kwds = {'err_msg': '', 'verbose': True, 'header': 'Arrays are not almost equal to 7 decimals', 'precision': 7}
+
+    @wraps(func)
+    def inner(*args, **kwds):
+        with self._recreate_cm():
+>           return func(*args, **kwds)
+                   ^^^^^^^^^^^^^^^^^^^
+E           AssertionError: 
+E           Arrays are not almost equal to 7 decimals
+E           
+E           Mismatched elements: 2 / 2 (100%)
+E           Max absolute difference: 0.001017
+E           Max relative difference: 0.00004
+E            x: array([25.6125784, 12.7134604])
+E            y: array([25.6115616, 12.7133981])
+
+/opt/homebrew/Cellar/python@3.12/3.12.13/Framewor
+1	"""Test Measure module."""
+2	
+3	import numpy as np
+4	import pytest
+5	
+6	import skfolio.measures as skm
+7	from skfolio.datasets import load_sp500_dataset
+8	from skfolio.preprocessing import prices_to_returns
+9	
+10	
+11	@pytest.fixture(scope="module")
+12	def returns_1d():
+13	    prices = load_sp500_dataset()
+14	    X = prices_to_returns(X=prices[["AAPL"]], log_returns=False)
+15	    returns_1d = X.to_numpy().reshape(-1)
+16	    return returns_1d
+17	
+18	
+19	@pytest.fixture(scope="module")
+20	def returns_2d():
+21	    prices = load_sp500_dataset()
+22	    X = prices_to_returns(X=prices[["AAPL", "AMD"]], log_returns=False)
+23	    returns_2d = X.to_numpy()
+24	    return returns_2d
+25	
+26	
+27	@pytest.fixture(
+28	    scope="module",
+29	    params=["1d", "2d"],
+30	)
+31	def returns(request, returns_1d, returns_2d):
+32	    if request.param == "1d":
+33	        return returns_1d
+34	    elif request.param == "2d":
+35	        return returns_2d
+36	    else:
+37	        raise ValueError(f"request.param {request.param} not found")
+38	
+39	
+40	@pytest.fixture(scope="module", params=[True, False])
+41	def sample_weight(request, returns_1d):
+42	    if not request.param:
+43	        return
+44	    rng = np.random.default_rng(0)
+45	    sample_weight = rng.random(len(returns_1d))
+46	    sample_weight /= sample_weight.sum()
+47	    return sample_weight
+48	
+49	
+50	@pytest.mark.parametrize(
+$ source <WORKSPACE>/.venv/bin/activate && python3 -c "
+import numpy as np
+from skfolio.datasets import load_sp500_dataset
+from skfolio.preprocessing import prices_to_returns
+prices = load_sp500_dataset()
+X = prices_to_returns(X=prices[['AAPL']], log_returns=False)
+r = X.to_numpy().reshape(-1)
+rng = np.random.default_rng(0)
+w = rng.random(len(r)); w /= w.sum()
+
+# biased variance centered on unweighted mean
+v_unw = w @ (r - np.mean(r))**2
+# biased variance centered on weighted mean
+v_w = w @ (r - (w@r))**2
+print('expected in test    : 0.0007406478')
+print('center unweighted   :', v_unw)
+print('center weighted     :', v_w)
+"
+expected in test    : 0.0007406478
+center unweighted   : 0.0007406478216100589
+center weighted     : 0.0007406331194881209
+$ source <WORKSPACE>/.venv/bin/activate && python3 -c "
+import numpy as np
+from skfolio.datasets import load_sp500_dataset
+from skfolio.preprocessing import prices_to_returns
+prices = load_sp500_dataset()
+X = prices_to_returns(X=prices[['AAPL','AMD']], log_returns=False)
+r2 = X.to_numpy()
+r1 = r2[:,0]
+rng = np.random.default_rng(0)
+w = rng.random(len(r1)); w /= w.sum()
+
+def bias_unw(r): return w @ (r - np.mean(r,axis=0))**2
+def bias_w(r): return w @ (r - (w@r))**2
+
+print('1d biased expected 0.0007406478')
+print('  unweighted-center:', bias_unw(r1))
+print('  weighted-center  :', bias_w(r1))
+print('2d biased expected [0.0007406478, 0.00151843891]')
+print('  unweighted-center:', bias_unw(r2))
+print('  weighted-center  :', bias_w(r2))
+"
+1d biased expected 0.0007406478
+  unweighted-center: 0.0007406478216100589
+  weighted-center  : 0.0007406331194881209
+2d biased expected [0.0007406478, 0.00151843891]
+  unweighted-center: [0.00074065 0.00151844]
+  weighted-center  : [0.00074063 0.00151844]
+$ source <WORKSPACE>/.venv/bin/activate && python3 -c "
+import numpy as np
+# Does the module's own correlation() (np.cov with aweights) center on the WEIGHTED mean?
+r = np.array([0.01, -0.02, 0.03, -0.01, 0.02])
+w = np.array([0.4, 0.3, 0.2, 0.05, 0.05]); w = w/w.sum()
+X = np.column_stack([r, r*0+r])  # 2 identical cols
+cov = np.cov(X, rowvar=False, aweights=w)
+print('np.cov aweights biased? diag =', np.diag(cov))
+# np.cov default ddof: with aweights, ddof=1 -> unbiased. Force biased:
+cov_b = np.cov(X, rowvar=False, aweights=w, ddof=0)
+print('np.cov aweights ddof=0 diag =', np.diag(cov_b))
+# weighted-mean-centered biased variance:
+print('weighted-center biased      =', w @ (r - w@r)**2)
+# unweighted-mean-centered biased  :
+print('unweighted-center biased    =', w @ (r - r.mean())**2)
+"
+np.cov aweights biased? diag = [0.00048901 0.00048901]
+np.cov aweights ddof=0 diag = [0.00034475 0.00034475]
+weighted-center biased      = 0.00034475
+unweighted-center biased    = 0.0003470000000000001
+$ source <WORKSPACE>/.venv/bin/activate && cp src/skfolio/measures/_measures.py /tmp/_measures_fixed.py
+# revert to buggy
+python3 - <<'EOF'
+p='src/skfolio/measures/_measures.py'
+s=open(p).read()
+s=s.replace("biased_var = sample_weight @ (returns - mean(returns, sample_weight=sample_weight)) ** 2","biased_var = sample_weight @ (returns - mean(returns)) ** 2")
+open(p,'w').write(s)
+EOF
+python -m pytest "tests/test_measures/test_measures.py::test_variance" "tests/test_measures/test_measures.py::test_kurtosis" -q 2>&1 | tail -8
+............                                                             [100%]
+12 passed in 0.07s
+$ source <WORKSPACE>/.venv/bin/activate && cp /tmp/_measures_fixed.py src/skfolio/measures/_measures.py && python3 -c "
+import numpy as np
+from skfolio.datasets import load_sp500_dataset
+from skfolio.preprocessing import prices_to_returns
+prices = load_sp500_dataset()
+r1 = prices_to_returns(X=prices[['AAPL']], log_returns=False).to_numpy().reshape(-1)
+rng = np.random.default_rng(0); w = rng.random(len(r1)); w/=w.sum()
+
+# third central moment golden (1d, weighted): from test file
+# check what the test expects
+" 
+grep -n "test_third_central_moment\|expected" tests/test_measures/test_measures.py | sed -n '1,80p' | grep -A15 "third_central"
+334:def test_third_central_moment(returns, sample_weight, expected):
+336:        skm.third_central_moment(returns, sample_weight=sample_weight), expected, 10
+341:def test_third_central_moment_sample_weight(returns):
+351:    "returns,sample_weight,expected",
+360:def test_skew(returns, sample_weight, expected):
+362:        skm.skew(returns, sample_weight=sample_weight), expected
+377:    "returns,sample_weight,expected",
+386:def test_fourth_central_moment(returns, sample_weight, expected):
+388:        skm.fourth_central_moment(returns, sample_weight=sample_weight), expected, 10
+403:    "returns,sample_weight,expected",
+412:def test_kurtosis(returns, sample_weight, expected):
+414:        skm.kurtosis(returns, sample_weight=sample_weight), expected
+429:    "returns,min_acceptable_return,expected",
+438:def test_fourth_lower_partial_moment(returns, min_acceptable_return, expected):
+444:            expected,
+451:    "returns,expected",
+458:def test_worst_return(returns, expected):
+459:    np.testing.assert_almost_equal(skm.worst_realization(returns), expected)
+322	
+323	
+324	@pytest.mark.parametrize(
+325	    "returns,sample_weight,expected",
+326	    [
+327	        ("1d", False, -8.0259e-06),
+328	        ("1d", True, -1.04409e-05),
+329	        ("2d", False, [-8.0259e-06, 2.02371e-05]),
+330	        ("2d", True, [-1.04409e-05, 2.18454e-05]),
+331	    ],
+332	    indirect=["returns", "sample_weight"],
+333	)
+334	def test_third_central_moment(returns, sample_weight, expected):
+335	    np.testing.assert_almost_equal(
+336	        skm.third_central_moment(returns, sample_weight=sample_weight), expected, 10
+337	    )
+338	
+339	
+340	@pytest.mark.parametrize("returns", ["1d", "2d"], indirect=True)
+341	def test_third_central_moment_sample_weight(returns):
+342	    q = np.ones(len(returns)) / len(returns)
+343	    np.testing.assert_almost_equal(
+344	        skm.third_central_moment(returns, sample_weight=q),
+345	        skm.third_central_moment(returns),
+346	        10,
+347	    )
+348	
+349	
+350	@pytest.mark.parametrize(
+351	    "returns,sample_weight,expected",
+352	    [
+353	        ("1d", False, -0.3924154),
+354	        ("1d", True, -0.5179931),
+355	        ("2d", False, [-0.3924155, 0.3431228]),
+356	        ("2d", True, [-0.5179932, 0.3692027]),
+357	    ],
+358	    indirect=["returns", "sample_weight"],
+359	)
+360	def test_skew(returns, sample_weight, expected):
+361	    np.testing.assert_almost_equal(
+362	        skm.skew(returns, sample_weight=sample_weight), expected
+363	    )
+364	
+365	
+366	@pytest.mark.parametrize("returns", ["1d", "2d"], indirect=True)
+367	def test_skew_sample_weight(returns):
+368	    q = np.ones(len(returns)) / len(returns)
+369	    np.testing.assert_almost_equal(
+370	        skm.skew(returns, sample_weight=q),
+371	        skm.skew(returns),
+372	        10,
+373	    )
+374	
+375	
+376	@pytest.mark.parametrize(
+$ source <WORKSPACE>/.venv/bin/activate && python3 -c "
+import numpy as np
+from skfolio.datasets import load_sp500_dataset
+from skfolio.preprocessing import prices_to_returns
+prices = load_sp500_dataset()
+r1 = prices_to_returns(X=prices[['AAPL']], log_returns=False).to_numpy().reshape(-1)
+rng = np.random.default_rng(0); w = rng.random(len(r1)); w/=w.sum()
+
+wm = w@r1; um = r1.mean()
+m3_w = w@(r1-wm)**3
+m3_u = w@(r1-um)**3
+print('third_central_moment golden(1d,w) = -1.04409e-05')
+print('  weighted-center  :', m3_w)
+print('  unweighted-center:', m3_u)
+
+var_w = w@(r1-wm)**2   # weighted-center biased var
+var_u = w@(r1-um)**2   # unweighted-center biased var
+print()
+print('skew golden(1d,w) = -0.5179931')
+print('  m3_w/var_w^1.5 :', m3_w/var_w**1.5)
+print('  m3_w/var_u^1.5 :', m3_w/var_u**1.5, '  <- current buggy mixture')
+print('  m3_u/var_u^1.5 :', m3_u/var_u**1.5)
+"
+third_central_moment golden(1d,w) = -1.04409e-05
+  weighted-center  : -1.044098908810561e-05
+  unweighted-center: -1.0710401293769714e-05
+
+skew golden(1d,w) = -0.5179931
+  m3_w/var_w^1.5 : -0.5180085745165258
+  m3_w/var_u^1.5 : -0.5179931506121863   <- current buggy mixture
+  m3_u/var_u^1.5 : -0.531359094781624
+$ source <WORKSPACE>/.venv/bin/activate && python3 -c "
+import numpy as np
+from skfolio.datasets import load_sp500_dataset
+from skfolio.preprocessing import prices_to_returns
+prices = load_sp500_dataset()
+r1 = prices_to_returns(X=prices[['AAPL']], log_returns=False).to_numpy().reshape(-1)
+rng = np.random.default_rng(0); w = rng.random(len(r1)); w/=w.sum()
+wm=w@r1; um=r1.mean()
+
+# semi_variance biased, MAR=None(=mean), weighted golden = 0.0003672863
+# code uses mean(returns) UNWEIGHTED for MAR default currently
+mar_u = um
+mar_w = wm
+sv_maru = w @ np.maximum(0, mar_u - r1)**2
+sv_marw = w @ np.maximum(0, mar_w - r1)**2
+print('semi_variance biased None weighted golden = 0.0003672863')
+print('  MAR=unweighted-mean:', sv_maru)
+print('  MAR=weighted-mean  :', sv_marw)
+"
+semi_variance biased None weighted golden = 0.0003672863
+  MAR=unweighted-mean: 0.0003672863389593244
+  MAR=weighted-mean  : 0.00036502474287293
+$ source <WORKSPACE>/.venv/bin/activate && cp src/skfolio/measures/_measures.py /tmp/keepfix.py
+python3 - <<'EOF'
+p='src/skfolio/measures/_measures.py'
+s=open(p).read()
+s=s.replace("biased_var = sample_weight @ (returns - mean(returns, sample_weight=sample_weight)) ** 2","biased_var = sample_weight @ (returns - mean(returns)) ** 2")
+open(p,'w').write(s)
+EOF
+echo "=== BUGGY CODE: full test_measures ==="
+python -m pytest tests/test_measures/ -q 2>&1 | tail -5
+=== BUGGY CODE: full test_measures ===
+........................................................................ [ 39%]
+........................................................................ [ 79%]
+......................................                                   [100%]
+182 passed in 0.19s
+$ source <WORKSPACE>/.venv/bin/activate && cp /tmp/keepfix.py src/skfolio/measures/_measures.py  # restore fix
+python3 -c "
+import numpy as np
+from skfolio.datasets import load_sp500_dataset
+from skfolio.preprocessing import prices_to_returns
+prices = load_sp500_dataset()
+r1 = prices_to_returns(X=prices[['AAPL']], log_returns=False).to_numpy().reshape(-1)
+rng = np.random.default_rng(0); w = rng.random(len(r1)); w/=w.sum()
+wm=w@r1; um=r1.mean()
+print('n=',len(r1))
+print('weighted mean =', wm, ' unweighted mean =', um)
+# Definitions
+print()
+print('test_variance[1d-True-True] golden = 0.0007406478')
+print('  E_w[(r-wm)^2] =', w@(r1-wm)**2, '  (weighted-center, general def)')
+print('  E_w[(r-um)^2] =', w@(r1-um)**2, '  (unweighted-center, current)')
+print()
+# np.cov aweights (the module's OWN correlation() convention):
+X=np.column_stack([r1,r1])
+print('np.cov(aweights,ddof=0) =', np.diag(np.cov(X,rowvar=False,aweights=w,ddof=0)), ' <- module correlation() convention')
+"
+n= 8312
+weighted mean = 0.0010021051501522046  unweighted mean = 0.0011233574570902395
+
+test_variance[1d-True-True] golden = 0.0007406478
+  E_w[(r-wm)^2] = 0.0007406331194881209   (weighted-center, general def)
+  E_w[(r-um)^2] = 0.0007406478216100589   (unweighted-center, current)
+
+np.cov(aweights,ddof=0) = [0.00074063 0.00074063]  <- module correlation() convention
+$ source <WORKSPACE>/.venv/bin/activate && python3 -c "
+import numpy as np
+from skfolio.datasets import load_sp500_dataset
+from skfolio.preprocessing import prices_to_returns
+prices = load_sp500_dataset()
+r1 = prices_to_returns(X=prices[['AAPL']], log_returns=False).to_numpy().reshape(-1)
+rng=np.random.default_rng(0); w=rng.random(len(r1)); w/=w.sum()
+wm=w@r1; um=r1.mean()
+print('=== Internal consistency: which center does each measure use? ===')
+print()
+print('third_central_moment golden(1d,w)=-1.04409e-05')
+print('  weighted-center =', w@(r1-wm)**3, ' (MATCHES golden -> module uses WEIGHTED center here)')
+print('  unweighted      =', w@(r1-um)**3)
+print()
+print('variance golden(1d,w,biased)=0.0007406478')
+print('  weighted-center =', w@(r1-wm)**2)
+print('  unweighted      =', w@(r1-um)**2, ' (MATCHES golden -> variance WRONGLY uses UNWEIGHTED)')
+print()
+print('=> variance is the ONLY central moment centering on the unweighted mean: the bug.')
+"
+=== Internal consistency: which center does each measure use? ===
+
+third_central_moment golden(1d,w)=-1.04409e-05
+  weighted-center = -1.044098908810561e-05  (MATCHES golden -> module uses WEIGHTED center here)
+  unweighted      = -1.0710401293769714e-05
+
+variance golden(1d,w,biased)=0.0007406478
+  weighted-center = 0.0007406331194881209
+  unweighted      = 0.0007406478216100589  (MATCHES golden -> variance WRONGLY uses UNWEIGHTED)
+
+=> variance is the ONLY central moment centering on the unweighted mean: the bug.
+$ source <WORKSPACE>/.venv/bin/activate && cp /tmp/keepfix.py src/skfolio/measures/_measures.py
+echo "=== confirm fix line ==="
+grep -n "biased_var = sample_weight" src/skfolio/measures/_measures.py
+echo "=== public reproduction test ==="
+python -m pytest tests/test_public_reproduction.py -v 2>&1 | tail -6
+=== confirm fix line ===
+139:    biased_var = sample_weight @ (returns - mean(returns, sample_weight=sample_weight)) ** 2
+=== public reproduction test ===
+configfile: pyproject.toml
+collecting ... collected 1 item
+
+tests/test_public_reproduction.py::test_weighted_variance_matches_reference PASSED [100%]
+
+============================== 1 passed in 0.01s ===============================
+$ source <WORKSPACE>/.venv/bin/activate && echo "=== test_measures (with fix) ===" && python -m pytest tests/test_measures/ -q 2>&1 | tail -16
+=== test_measures (with fix) ===
+
+/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:81: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_measures/test_measures.py::test_variance[1d-True-True-0.0007406478]
+FAILED tests/test_measures/test_measures.py::test_variance[1d-True-False-0.0007407669]
+FAILED tests/test_measures/test_measures.py::test_variance[2d-True-True-expected6]
+FAILED tests/test_measures/test_measures.py::test_variance[2d-True-False-expected7]
+FAILED tests/test_measures/test_measures.py::test_standard_deviation[1d-True-True-0.0272148]
+FAILED tests/test_measures/test_measures.py::test_standard_deviation[1d-True-False-0.027217]
+FAILED tests/test_measures/test_measures.py::test_standard_deviation[2d-True-True-expected6]
+FAILED tests/test_measures/test_measures.py::test_standard_deviation[2d-True-False-expected7]
+FAILED tests/test_measures/test_measures.py::test_skew[1d-True--0.5179931] - ...
+FAILED tests/test_measures/test_measures.py::test_skew[2d-True-expected3] - A...
+FAILED tests/test_measures/test_measures.py::test_kurtosis[1d-True-25.6115615]
+FAILED tests/test_measures/test_measures.py::test_kurtosis[2d-True-expected3]
+12 failed, 170 passed in 0.46s
+$ source <WORKSPACE>/.venv/bin/activate && echo "=== who calls variance/standard_deviation with sample_weight in src ===" && grep -rn "variance(\|standard_deviation(\|\.variance\b" src/skfolio --include=*.py | grep -iv "def \|semi_variance\|test" | grep -i "sample_weight\|variance" | head -40
+=== who calls variance/standard_deviation with sample_weight in src ===
+(eval):1: no matches found: --include=*.py
+Found 48 files
+src/skfolio/measures/_measures.py
+src/skfolio/pre_selection/__init__.py
+src/skfolio/pre_selection/_select_non_dominated.py
+src/skfolio/pre_selection/_drop_zero_variance.py
+src/skfolio/portfolio/_multi_period_portfolio.py
+src/skfolio/portfolio/_portfolio.py
+src/skfolio/portfolio/_base.py
+src/skfolio/measures/_enums.py
+src/skfolio/measures/__init__.py
+src/skfolio/prior/_entropy_pooling.py
+src/skfolio/prior/_empirical.py
+src/skfolio/prior/_opinion_pooling.py
+src/skfolio/prior/_synthetic_data.py
+src/skfolio/prior/_factor_model.py
+src/skfolio/prior/_base.py
+src/skfolio/prior/_black_litterman.py
+src/skfolio/utils/stats.py
+src/skfolio/distance/__init__.py
+src/skfolio/distance/_distance.py
+src/skfolio/optimization/convex/_risk_budgeting.py
+src/skfolio/optimization/convex/_distributionally_robust.py
+src/skfolio/optimization/convex/_mean_risk.py
+src/skfolio/optimization/convex/_maximum_diversification.py
+src/skfolio/optimization/convex/_base.py
+src/skfolio/optimization/naive/_naive.py
+src/skfolio/optimization/cluster/hierarchical/_hrp.py
+src/skfolio/optimization/cluster/hierarchical/_herc.py
+src/skfolio/optimization/cluster/hierarchical/_base.py
+src/skfolio/uncertainty_set/_empirical.py
+src/skfolio/uncertainty_set/__init__.py
+src/skfolio/uncertainty_set/_bootstrap.py
+src/skfolio/uncertainty_set/_base.py
+src/skfolio/moments/expected_returns/_equilibrium_mu.py
+src/skfolio/moments/expected_returns/_shrunk_mu.py
+src/skfolio/moments/covariance/_ledoit_wolf.py
+src/skfolio/moments/covariance/_ew_covariance.py
+src/skfolio/moments/covariance/_denoise_covariance.py
+src/skfolio/moments/covariance/_gerber_covariance.py
+src/skfolio/moments/covariance/__init__.py
+src/skfolio/moments/covariance/_oas.py
+src/skfolio/moments/covariance/_shrunk_covariance.py
+src/skfolio/moments/covariance/_graphical_lasso_cv.py
+src/skfolio/moments/covariance/_detone_covariance.py
+src/skfolio/moments/covariance/_empirical_covariance.py
+src/skfolio/moments/covariance/_implied_covariance.py
+src/skfo
+$ source <WORKSPACE>/.venv/bin/activate
+echo "=== tests that pass sample_weight AND touch variance/std/skew/kurtosis ==="
+grep -rln "sample_weight" tests/ | xargs grep -ln "variance\|standard_deviation\|skew\|kurtosis\|EmpiricalPrior\|\.std\b" 2>/dev/null
+=== tests that pass sample_weight AND touch variance/std/skew/kurtosis ===
+tests/test_portfolio/test_multi_period_portfolio.py
+tests/test_portfolio/test_portfolio.py
+tests/test_measures/__pycache__/test_measures.cpython-312-pytest-9.1.1.pyc
+tests/test_measures/test_measures.py
+tests/__pycache__/test_public_reproduction.cpython-312-pytest-9.1.1.pyc
+tests/__pycache__/test_public_reproduction.cpython-312.pyc
+tests/test_public_reproduction.py
+tests/test_prior/test_entropy_pooling.py
+tests/test_prior/test_opinion_pooling.py
+tests/test_optimization/test_cluster/test_hierarchical/test_herc.py
+tests/test_optimization/test_cluster/test_hierarchical/test_hrp.py
+tests/test_optimization/test_convex/test_distributionally_robust_cvar.py
+tests/test_optimization/test_convex/test_mean_risk.py
+$ source <WORKSPACE>/.venv/bin/activate
+echo "=== full regression suite (excluding the two already-known measures/public files) ==="
+python -m pytest tests/ -q -x --ignore=tests/test_optimization 2>&1 | tail -25
+=== full regression suite (excluding the two already-known measures/public files) ===
+        headers = {name.title(): val for name, val in headers.items()}
+    
+        if req._tunnel_host:
+            tunnel_headers = {}
+            proxy_auth_hdr = "Proxy-Authorization"
+            if proxy_auth_hdr in headers:
+                tunnel_headers[proxy_auth_hdr] = headers[proxy_auth_hdr]
+                # Proxy-Authorization should not be sent to origin
+                # server.
+                del headers[proxy_auth_hdr]
+            h.set_tunnel(req._tunnel_host, headers=tunnel_headers)
+    
+        try:
+            try:
+                h.request(req.get_method(), req.selector, req.data, headers,
+                          encode_chunked=req.has_header('Transfer-encoding'))
+            except OSError as err: # timeout error
+>               raise URLError(err)
+E               urllib.error.URLError: <urlopen error [Errno 60] Operation timed out>
+
+/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/urllib/request.py:1347: URLError
+=========================== short test summary info ============================
+FAILED tests/test_dataset/test_dataset.py::TestLoadFtse100Dataset::test_load_ftse100_dataset_success
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 79 passed in 308.54s (0:05:08)
+$ source <WORKSPACE>/.venv/bin/activate
+python -m pytest tests/test_portfolio tests/test_prior tests/test_utils tests/test_moment tests/test_distance tests/test_metrics tests/test_model_selection -q -p no:cacheprovider 2>&1 | tail -25
+Command running in background with ID: buxp1xt34. Output is being written to: /private/tmp/claude-501/-private-tmp-agent-ws-skfolio-002-official-20260722-03-workspace/<SESSION_ID>/tasks/buxp1xt34.output. You will be notified when it completes. To check interim output, use Read on that file path.
+$ source <WORKSPACE>/.venv/bin/activate
+grep -n "sample_weight\|variance\|skew\|kurtosis\|assert" tests/test_portfolio/test_portfolio.py | grep -i "sample_weight" | head
+101:def sample_weight(X):
+103:    sample_weight = rng.random(len(X))
+104:    sample_weight /= sample_weight.sum()
+105:    return sample_weight
+381:        if arg not in ["biased", "sample_weight"]
+490:def test_sample_weight(portfolio, sample_weight):
+492:    portfolio.sample_weight = np.ones(len(sample_weight)) / len(sample_weight)
+495:    portfolio.sample_weight = sample_weight
+499:    portfolio.sample_weight = None
+504:def test_sample_weight_error(portfolio, sample_weight):
+485	    np.testing.assert_array_equal(
+486	        df.values[0], portfolio.weights[portfolio.nonzero_assets_index]
+487	    )
+488	
+489	
+490	def test_sample_weight(portfolio, sample_weight):
+491	    ref = portfolio.cvar
+492	    portfolio.sample_weight = np.ones(len(sample_weight)) / len(sample_weight)
+493	    v1 = portfolio.cvar
+494	    np.testing.assert_almost_equal(ref, v1)
+495	    portfolio.sample_weight = sample_weight
+496	    v2 = portfolio.cvar
+497	    _ = portfolio.summary()
+498	    assert abs(v1 - v2) > 0.001
+499	    portfolio.sample_weight = None
+500	    v3 = portfolio.cvar
+501	    np.testing.assert_almost_equal(ref, v3)
+502	
+503	
+504	def test_sample_weight_error(portfolio, sample_weight):
+505	    with pytest.raises(ValueError, match="sample_weight must have the same length as"):
+506	        portfolio.sample_weight = np.ones(5)
+507	
+508	    with pytest.raises(ValueError, match="sample_weight must sum to one"):
+509	        portfolio.sample_weight = np.ones(len(sample_weight))
+510	
+511	    with pytest.raises(ValueError, match="sample_weight must be a 1D array"):
+512	        portfolio.sample_weight = [[1]]
+513	
+<retrieval_status>timeout</retrieval_status>
+
+<task_id>buxp1xt34</task_id>
+
+<task_type>local_bash</task_type>
+
+<status>running</status>
+<retrieval_status>timeout</retrieval_status>
+
+<task_id>buxp1xt34</task_id>
+
+<task_type>local_bash</task_type>
+
+<status>running</status>
+$ tail -5 /private/tmp/claude-501/-private-tmp-agent-ws-skfolio-002-official-20260722-03-workspace/<SESSION_ID>/tasks/buxp1xt34.output 2>/dev/null
+(Bash completed with no output)
+<retrieval_status>timeout</retrieval_status>
+
+<task_id>buxp1xt34</task_id>
+
+<task_type>local_bash</task_type>
+
+<status>running</status>
+<retrieval_status>timeout</retrieval_status>
+
+<task_id>buxp1xt34</task_id>
+
+<task_type>local_bash</task_type>
+
+<status>running</status>
+<system-reminder>Warning: the file exists but is shorter than the provided offset (1). The file has 1 lines.</system-reminder>
+$ cat /private/tmp/claude-501/-private-tmp-agent-ws-skfolio-002-official-20260722-03-workspace/<SESSION_ID>/tasks/buxp1xt34.output
+(Bash completed with no output)
+<retrieval_status>success</retrieval_status>
+
+<task_id>buxp1xt34</task_id>
+
+<task_type>local_bash</task_type>
+
+<status>completed</status>
+
+<exit_code>0</exit_code>
+
+<output>
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_volatility_risk_premium_adj[1-1]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_volatility_risk_premium_adj[1.5-1.5]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_volatility_risk_premium_adj[100-100]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_volatility_risk_premium_adj[volatility_risk_premium_adj4-expected4]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_volatility_risk_premium_adj[volatility_risk_premium_adj5-expected5]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_volatility_risk_premium_adj_non_pos[-0.5]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_volatility_risk_premium_adj_non_pos[0]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_window_too_big[0.1]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_window_too_big[1]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_window_too_big[2]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_small_error[-1]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_small_error[0]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_small_error[1]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_small_error[2]
+ERROR tests/test_moment/test_covariance/test_implied_covariance.py::test_implied_covariance_small
+$ grep -E "^FAILED" /private/tmp/claude-501/-private-tmp-agent-ws-skfolio-002-official-20260722-03-workspace/<SESSION_ID>/tasks/buxp1xt34.output
+(Bash completed with no output)
+$ grep -iE "failed|error" /private/tmp/claude-501/-private-tmp-agent-ws-skfolio-002-official-20260722-03-workspace/<SESSION_ID>/tasks/buxp1xt34.output | grep -v "^ERROR tests" | head -40
+4 failed, 541 passed, 35 errors in 2919.64s (0:48:39)
+$ source <WORKSPACE>/.venv/bin/activate
+python -m pytest tests/test_portfolio tests/test_utils tests/test_metrics -q -p no:cacheprovider -rfE 2>&1 | tail -20
+            proxy_auth_hdr = "Proxy-Authorization"
+            if proxy_auth_hdr in headers:
+                tunnel_headers[proxy_auth_hdr] = headers[proxy_auth_hdr]
+                # Proxy-Authorization should not be sent to origin
+                # server.
+                del headers[proxy_auth_hdr]
+            h.set_tunnel(req._tunnel_host, headers=tunnel_headers)
+    
+        try:
+            try:
+                h.request(req.get_method(), req.selector, req.data, headers,
+                          encode_chunked=req.has_header('Transfer-encoding'))
+            except OSError as err: # timeout error
+>               raise URLError(err)
+E               urllib.error.URLError: <urlopen error [Errno 60] Operation timed out>
+
+/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/urllib/request.py:1347: URLError
+=========================== short test summary info ============================
+ERROR tests/test_utils/test_stats.py::test_cov_nearest - urllib.error.URLErro...
+352 passed, 1 error in 318.49s (0:05:18)
+$ source <WORKSPACE>/.venv/bin/activate
+python -m pytest tests/test_prior tests/test_distance tests/test_model_selection -q -p no:cacheprovider -rf 2>&1 | grep -iE "^FAILED|passed|failed" | tail -30
+Command running in background with ID: b5rugl4ry. Output is being written to: /private/tmp/claude-501/-private-tmp-agent-ws-skfolio-002-official-20260722-03-workspace/<SESSION_ID>/tasks/b5rugl4ry.output. You will be notified when it completes. To check interim output, use Read on that file path.
+<retrieval_status>timeout</retrieval_status>
+
+<task_id>b5rugl4ry</task_id>
+
+<task_type>local_bash</task_type>
+
+<status>running</status>
+<retrieval_status>success</retrieval_status>
+
+<task_id>b5rugl4ry</task_id>
+
+<task_type>local_bash</task_type>
+
+<status>completed</status>
+
+<exit_code>0</exit_code>
+
+<output>
+                "Dual problem with Solver 'TNC' failed. This typically occurs when the "
+E           skfolio.exceptions.SolverError: Dual problem with Solver 'TNC' failed. This typically occurs when the specified views conflict or are overly extreme. Consider using a prior that generates more synthetic data for extreme views. You can also change `solver_params` or try another `solver` such as 'CLARABEL'. Solver error: Linear search failed
+FAILED tests/test_prior/test_entropy_pooling.py::test_cvar_variance_views[TNC]
+FAILED tests/test_prior/test_entropy_pooling.py::test_mean_correlation_views[TNC]
+FAILED tests/test_prior/test_entropy_pooling.py::test_mean_correlation_views[CLARABEL]
+FAILED tests/test_prior/test_entropy_pooling.py::test_complex_views - Asserti...
+4 failed, 174 passed, 7 errors in 1560.99s (0:26:00)
+</output>
+$ source <WORKSPACE>/.venv/bin/activate
+grep -rn "variance\|sample_weight\|measures" src/skfolio/prior/_entropy_pooling.py | grep -i "variance\|import.*measure" | head
+src/skfolio/prior/_entropy_pooling.py:24:import skfolio.measures as sm
+src/skfolio/prior/_entropy_pooling.py:114:    moments (e.g., means or variances) and then solved via **nested entropic tilting**.
+src/skfolio/prior/_entropy_pooling.py:119:    * Stage 2: carry forward Stage 1 constraints and add variance, fixing the
+src/skfolio/prior/_entropy_pooling.py:122:      pairwise correlations, fixing both mean and variance at their Stage 2 values.
+src/skfolio/prior/_entropy_pooling.py:193:    variance_views : list[str], optional
+src/skfolio/prior/_entropy_pooling.py:194:        Views on asset variances.
+src/skfolio/prior/_entropy_pooling.py:199:            * `"SPX >= 0.0009"` --> SPX variance is greater than 0.0009 (daily)
+src/skfolio/prior/_entropy_pooling.py:200:            * `"SX5E == 1.5 * prior(SX5E)"` --> SX5E variance increases by 150% (versus
+src/skfolio/prior/_entropy_pooling.py:372:    ...     variance_views=[
+src/skfolio/prior/_entropy_pooling.py:430:        _is_fixed_variance: np.ndarray
+$ source <WORKSPACE>/.venv/bin/activate
+cp src/skfolio/measures/_measures.py /tmp/keepfix.py
+python3 - <<'EOF'
+p='src/skfolio/measures/_measures.py'
+s=open(p).read()
+s=s.replace("biased_var = sample_weight @ (returns - mean(returns, sample_weight=sample_weight)) ** 2","biased_var = sample_weight @ (returns - mean(returns)) ** 2")
+open(p,'w').write(s)
+print("reverted to buggy for baseline")
+EOF
+python -m pytest "tests/test_prior/test_entropy_pooling.py::test_cvar_variance_views" "tests/test_prior/test_entropy_pooling.py::test_mean_correlation_views" "tests/test_prior/test_entropy_pooling.py::test_complex_views" -q -p no:cacheprovider -rf 2>&1 | grep -iE "^FAILED|passed|failed|error" | tail
+reverted to buggy for baseline
+                        raise KeyError(f"constrain {name}")
+>           raise SolverError(
+                "Dual problem with Solver 'TNC' failed. This typically occurs when the "
+                f"'CLARABEL'. Solver error: {sol.message}"
+E           skfolio.exceptions.SolverError: Dual problem with Solver 'TNC' failed. This typically occurs when the specified views conflict or are overly extreme. Consider using a prior that generates more synthetic data for extreme views. You can also change `solver_params` or try another `solver` such as 'CLARABEL'. Solver error: Linear search failed
+src/skfolio/prior/_entropy_pooling.py:1104: SolverError
+FAILED tests/test_prior/test_entropy_pooling.py::test_cvar_variance_views[TNC]
+1 failed, 4 passed in 3.07s
+$ source <WORKSPACE>/.venv/bin/activate
+cp /tmp/keepfix.py src/skfolio/measures/_measures.py
+grep -n "biased_var = sample_weight" src/skfolio/measures/_measures.py
+python -m pytest "tests/test_prior/test_entropy_pooling.py::test_mean_correlation_views" "tests/test_prior/test_entropy_pooling.py::test_complex_views" -q -p no:cacheprovider -rf 2>&1 | grep -iE "^FAILED|passed|failed|assert|Error:" | tail -20
+139:    biased_var = sample_weight @ (returns - mean(returns, sample_weight=sample_weight)) ** 2
+>       np.testing.assert_almost_equal(model.relative_entropy_, 0.076345, 5)
+E           AssertionError: 
+/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:81: AssertionError
+>       np.testing.assert_almost_equal(model.relative_entropy_, 0.076345, 5)
+E           AssertionError: 
+/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:81: AssertionError
+>       np.testing.assert_almost_equal(entropy_pooling.relative_entropy_, 0.70692, 5)
+E           AssertionError: 
+/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/contextlib.py:81: AssertionError
+FAILED tests/test_prior/test_entropy_pooling.py::test_mean_correlation_views[TNC]
+FAILED tests/test_prior/test_entropy_pooling.py::test_mean_correlation_views[CLARABEL]
+FAILED tests/test_prior/test_entropy_pooling.py::test_complex_views - Asserti...
+3 failed in 1.36s
+$ source <WORKSPACE>/.venv/bin/activate
+grep -n "variance\|_mean\|mean(" src/skfolio/prior/_entropy_pooling.py | grep -iE "variance|center|mean" | head -40
+114:    moments (e.g., means or variances) and then solved via **nested entropic tilting**.
+119:    * Stage 2: carry forward Stage 1 constraints and add variance, fixing the
+122:      pairwise correlations, fixing both mean and variance at their Stage 2 values.
+193:    variance_views : list[str], optional
+194:        Views on asset variances.
+199:            * `"SPX >= 0.0009"` --> SPX variance is greater than 0.0009 (daily)
+200:            * `"SX5E == 1.5 * prior(SX5E)"` --> SX5E variance increases by 150% (versus
+372:    ...     variance_views=[
+429:        _is_fixed_mean: np.ndarray
+430:        _is_fixed_variance: np.ndarray
+437:        variance_views: list[str] | None = None,
+451:        self.variance_views = variance_views
+528:        self._is_fixed_mean = np.zeros(n_assets, dtype=bool)
+529:        self._is_fixed_variance = np.zeros(n_assets, dtype=bool)
+538:        self._add_mean_views()
+543:        if self.variance_views is not None:
+545:            mean = sm.mean(self._returns, sample_weight=sample_weight)
+547:            self._add_variance_views(mean=mean)
+556:            # Get mean and variance from Step 2
+557:            mean = sm.mean(self._returns, sample_weight=sample_weight)
+558:            variance = sm.variance(
+562:            self._add_correlation_views(mean=mean, variance=variance)
+563:            self._add_skew_views(mean=mean, variance=variance)
+564:            self._add_kurtosis_views(mean=mean, variance=variance)
+572:            mu=sm.mean(self._returns, sample_weight=sample_weight),
+573:            covariance=np.cov(self._returns, rowvar=False, aweights=sample_weight),
+620:    def _add_mean_views(self) -> None:
+631:    def _add_variance_views(self, mean: np.ndarray) -> None:
+632:        """Add variance view constraints to the optimization problem.
+637:            The fixed mean vector used to compute variance as a linear function of
+640:        if self.variance_views is None:
+655:        self._fix_mean(fix=fix, mean=mean)
+657:    def _add_sk
+525	            )
+526	
+527	        # Init problem variables
+528	        self._is_fixed_mean = np.zeros(n_assets, dtype=bool)
+529	        self._is_fixed_variance = np.zeros(n_assets, dtype=bool)
+530	        self._constraints = {
+531	            "equality": None,
+532	            "inequality": None,
+533	            "fixed_equality": None,
+534	            "cvar_equality": None,
+535	        }
+536	
+537	        # Step 1: Mean, VaR and CVaR
+538	        self._add_mean_views()
+539	        self._add_value_at_risk_views()
+540	        sample_weight = self._solve_with_cvar()
+541	
+542	        # Step 2:  Mean, VaR, CVaR and Variance
+543	        if self.variance_views is not None:
+544	            # Get mean from Step 1
+545	            mean = sm.mean(self._returns, sample_weight=sample_weight)
+546	            # Add new views and solve
+547	            self._add_variance_views(mean=mean)
+548	            sample_weight = self._solve_with_cvar()
+549	
+550	        # Step 3: Mean, VaR, CVaR, Variance, Correlation, Skew and Kurtosis
+551	        if (
+552	            self.correlation_views is not None
+553	            or self.skew_views is not None
+554	            or self.kurtosis_views is not None
+555	        ):
+556	            # Get mean and variance from Step 2
+557	            mean = sm.mean(self._returns, sample_weight=sample_weight)
+558	            variance = sm.variance(
+559	                self._returns, sample_weight=sample_weight, biased=True
+560	            )
+561	            # Add new views and solve
+562	            self._add_correlation_views(mean=mean, variance=variance)
+563	            self._add_skew_views(mean=mean, variance=variance)
+564	            self._add_kurtosis_views(mean=mean, variance=variance)
+565	            sample_weight = self._solve_with_cvar()
+566	
+567	        self.relative_entropy_ = float(
+568	            np.sum(scs.rel_entr(sample_weight, self._prior_sample_weight))
+569	        )
+$ source <WORKSPACE>/.venv/bin/activate
+echo "=== public reproduction test ==="
+python -m pytest tests/test_public_reproduction.py -q -p no:cacheprovider 2>&1 | tail -3
+echo
+echo "=== unweighted path unchanged + uniform-weight equals unweighted (sanity) ==="
+python3 -c "
+import numpy as np
+from skfolio.measures import variance
+r = np.array([0.01,-0.02,0.03,-0.01,0.02,0.005,-0.015])
+# no weights
+print('no-weight biased :', variance(r, biased=True), '==', np.var(r,ddof=0))
+print('no-weight unbias :', variance(r, biased=False),'==', np.var(r,ddof=1))
+# uniform weights should match unweighted
+q = np.ones(len(r))/len(r)
+print('uniform-w biased :', variance(r,sample_weight=q,biased=True), 'vs', np.var(r,ddof=0))
+"
+=== public reproduction test ===
+.                                                                        [100%]
+1 passed in 0.01s
+
+=== unweighted path unchanged + uniform-weight equals unweighted (sanity) ===
+no-weight biased : 0.0002989795918367347 == 0.0002989795918367347
+no-weight unbias : 0.0003488095238095238 == 0.0003488095238095238
+uniform-w biased : 0.00029897959183673473 vs 0.0002989795918367347
+$ source <WORKSPACE>/.venv/bin/activate
+python3 -c "
+import numpy as np
+from skfolio.datasets import load_sp500_dataset
+from skfolio.preprocessing import prices_to_returns
+import skfolio.measures as skm
+prices = load_sp500_dataset()
+r1 = prices_to_returns(X=prices[['AAPL']],log_returns=False).to_numpy().reshape(-1)
+r2 = prices_to_returns(X=prices[['AAPL','AMD']],log_returns=False).to_numpy()
+rng=np.random.default_rng(0); w=rng.random(len(r1)); w/=w.sum()
+print('CORRECTED values that the 12 test_measures cases would need:')
+print('variance[1d,w,biased] :', skm.variance(r1,sample_weight=w,biased=True))
+print('variance[1d,w,unbias] :', skm.variance(r1,sample_weight=w,biased=False))
+print('std[1d,w,biased]      :', skm.standard_deviation(r1,sample_weight=w,biased=True))
+print('skew[1d,w]            :', skm.skew(r1,sample_weight=w))
+print('kurtosis[1d,w]        :', skm.kurtosis(r1,sample_weight=w))
+"
+CORRECTED values that the 12 test_measures cases would need:
+variance[1d,w,biased] : 0.0007406331194881209
+variance[1d,w,unbias] : 0.00074075227303352
+std[1d,w,biased]      : 0.02721457549711406
+skew[1d,w]            : -0.5180085745165258
+kurtosis[1d,w]        : 25.6125784082942
+136	    if sample_weight is None:
+137	        return np.var(returns, ddof=0 if biased else 1, axis=0)
+138	
+139	    biased_var = sample_weight @ (returns - mean(returns, sample_weight=sample_weight)) ** 2
+140	    if biased:
+141	        return biased_var
+142	    n_eff = 1 / np.sum(sample_weight**2)
+143	    return biased_var * n_eff / (n_eff - 1)
+144	
+145	
+The file <WORKSPACE>/repo/src/skfolio/measures/_measures.py has been updated successfully. (file state is current in your context — no need to Read it back)
+$ source <WORKSPACE>/.venv/bin/activate
+echo "=== FINAL: public reproduction ==="
+python -m pytest tests/test_public_reproduction.py -v -p no:cacheprovider 2>&1 | tail -4
+echo
+echo "=== measures suite (12 golden cases encode the bug; rest pass) ==="
+python -m pytest tests/test_measures/ -q -p no:cacheprovider 2>&1 | tail -4
+=== FINAL: public reproduction ===
+
+tests/test_public_reproduction.py::test_weighted_variance_matches_reference PASSED [100%]
+
+============================== 1 passed in 0.00s ===============================
+
+=== measures suite (12 golden cases encode the bug; rest pass) ===
+FAILED tests/test_measures/test_measures.py::test_skew[2d-True-expected3] - A...
+FAILED tests/test_measures/test_measures.py::test_kurtosis[1d-True-25.6115615]
+FAILED tests/test_measures/test_measures.py::test_kurtosis[2d-True-expected3]
+12 failed, 170 passed in 0.43s
+$ source <WORKSPACE>/.venv/bin/activate
+echo "=== diff vs original ==="
+diff <(sed -n '136,144p' /tmp/_measures_fixed.py) <(sed -n '136,146p' src/skfolio/measures/_measures.py) || true
+echo
+echo "=== audit: which measures center deviations on a mean, and do they pass sample_weight? ==="
+grep -n "returns - mean\|mean(returns" src/skfolio/measures/_measures.py
+=== diff vs original ===
+4c4,6
+<     biased_var = sample_weight @ (returns - mean(returns, sample_weight=sample_weight)) ** 2
+---
+>     biased_var = (
+>         sample_weight @ (returns - mean(returns, sample_weight=sample_weight)) ** 2
+>     )
+
+=== audit: which measures center deviations on a mean, and do they pass sample_weight? ===
+35:        return np.mean(returns, axis=0)
+66:        min_acceptable_return = mean(returns, sample_weight=sample_weight)
+103:        min_acceptable_return = mean(returns, sample_weight=sample_weight)
+140:        sample_weight @ (returns - mean(returns, sample_weight=sample_weight)) ** 2
+182:        min_acceptable_return = mean(returns)
+289:        (returns - mean(returns, sample_weight=sample_weight)) ** 3,
+345:        (returns - mean(returns, sample_weight=sample_weight)) ** 4,
+407:        min_acceptable_return = mean(returns)
+$ source <WORKSPACE>/.venv/bin/activate
+python -m pytest tests/test_measures/ -q -p no:cacheprovider 2>&1 | grep FAILED | sed 's/ -.*//'
+FAILED tests/test_measures/test_measures.py::test_variance[1d-True-True-0.0007406478]
+FAILED tests/test_measures/test_measures.py::test_variance[1d-True-False-0.0007407669]
+FAILED tests/test_measures/test_measures.py::test_variance[2d-True-True-expected6]
+FAILED tests/test_measures/test_measures.py::test_variance[2d-True-False-expected7]
+FAILED tests/test_measures/test_measures.py::test_standard_deviation[1d-True-True-0.0272148]
+FAILED tests/test_measures/test_measures.py::test_standard_deviation[1d-True-False-0.027217]
+FAILED tests/test_measures/test_measures.py::test_standard_deviation[2d-True-True-expected6]
+FAILED tests/test_measures/test_measures.py::test_standard_deviation[2d-True-False-expected7]
+FAILED tests/test_measures/test_measures.py::test_skew[1d-True--0.5179931]
+FAILED tests/test_measures/test_measures.py::test_skew[2d-True-expected3]
+FAILED tests/test_measures/test_measures.py::test_kurtosis[1d-True-25.6115615]
+FAILED tests/test_measures/test_measures.py::test_kurtosis[2d-True-expected3]
+File does not exist. Note: your current working directory is <WORKSPACE>/repo.
+File created successfully at: <WORKSPACE_ROOT>/empty_claude_config/projects/-private-tmp-agent-ws-skfolio-002-official-20260722-03-workspace/memory/MEMORY.md (file state is current in your context — no need to Read it back)
+File created successfully at: <WORKSPACE_ROOT>/empty_claude_config/projects/-private-tmp-agent-ws-skfolio-002-official-20260722-03-workspace/memory/skfolio-weighted-variance-centering.md (file state is current in your context — no need to Read it back)

@@ -1,0 +1,18 @@
+$ <PROJECT_ROOT>/.envs/_runner/bin/python <PROJECT_ROOT>/pipeline/validate_case.py <PROJECT_ROOT>/cases/skfolio_002
+
+--- STDOUT ---
+=== 验收 skfolio_002 (runner v0.2) ===
+[PASS] Environment installation succeeds  (rc=0)
+[PASS] Baseline reproduces target bug  (rc=1 code_ok=True req_ok=True forbidden=[])
+[PASS] Agent patch applies cleanly
+[PASS] Patch touches only allowed paths  (changed=['src/skfolio/measures/_measures.py'])
+[PASS] Patch touches no forbidden paths
+[PASS] Public tests pass  (rc=0)
+[FAIL] Hidden tests pass  (rc=1)
+----------------------------------------
+FINAL RESULT: FAIL (6/7 checks)
+结果已写入 results/skfolio_002.json
+
+--- STDERR ---
+
+--- EXIT: 1 ---

@@ -1,0 +1,21 @@
+# 密钥与本地环境(绝不提交)
+.env.local
+.envs/
+
+# 外部大仓(位于项目外)
+../external_workspaces/
+
+# Python 缓存与构建产物
+*.egg-info/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# 运行日志与系统噪声
+results/*.log
+.DS_Store
+
+# 原始 Agent stream（含本机运行元数据：主机名/绝对路径/session_id）——不公开。
+# 公开仓库改用同目录 *.sanitized.jsonl（已彻底脱敏）。原始 raw 仅保留在本地。
+**/claude_stream.raw.jsonl
+**/claude_stream.redacted.jsonl

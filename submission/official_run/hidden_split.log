@@ -1,0 +1,5 @@
+tests/test_hidden_regression.py::test_target_weighted_variance_centered_on_weighted_mean PASSED [ 33%]
+tests/test_hidden_regression.py::test_completeness_weighted_semivariance_related_behavior FAILED [ 66%]
+tests/test_hidden_regression.py::test_regression_unweighted_variance_unchanged PASSED [100%]
+FAILED tests/test_hidden_regression.py::test_completeness_weighted_semivariance_related_behavior
+========================= 1 failed, 2 passed in 0.07s ==========================

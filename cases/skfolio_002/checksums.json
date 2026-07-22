@@ -1,0 +1,7 @@
+{
+  "schema": "case-freeze-v1",
+  "scope": "task/ + grader/ + agent_run/patch.applyable.diff; excludes results, caches, .envs, backups, metadata.yaml",
+  "task_tree_sha256": "a7717398c52d2bb047c8123499ba45d6db21af7e3bd1dad0f0ca13f2350dbe45",
+  "grader_tree_sha256": "0af331745234dcd3aec60c12e058a84279da5488c5cb5af26429e7e1f65f4c98",
+  "agent_patch_sha256": "26830fed40bd54bbea450d0e5eebe82200bc7fbf6a6b43a5878594275a3af5d0"
+}

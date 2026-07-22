@@ -1,0 +1,27 @@
+# Agent 配置(非敏感, 可提交)。密钥在 .env.local。
+# run_agent.py 用 --agent <name> 选择下面某一项。
+#
+# ⚠️ 注意: 本文件是通用/备选编排配置, **不是**正式 run 03 的实际配置。
+#    正式盲测 run 03 由 runs/skfolio_002_official_20260722_03/launch.sh 直接以
+#    无头 CLI 启动, 模型为 claude-opus-4-8[1m](见该 run 的 run_metadata.json 与
+#    init 事件), 与下方 claude_cli 默认的 sonnet-5 无关。此处 model 字段仅为
+#    通用编排缺省值, 复现正式实验请以 launch.sh / run_metadata.json 为准。
+agents:
+  claude_cli:
+    adapter: external_cli          # 用本机 claude CLI 无头模式(成熟工具循环, 代理已配)
+    command: claude
+    model: "claude-sonnet-5[1m]"   # 走 ANTHROPIC_DEFAULT_SONNET_MODEL
+    max_turns: 60
+    timeout_seconds: 1800
+
+  # 备选适配器(需要时启用):
+  # claude_sdk:
+  #   adapter: claude_agent_sdk     # 需 pip install claude-agent-sdk
+  #   model: "claude-sonnet-5[1m]"
+  #   max_turns: 60
+  #   timeout_seconds: 1800
+  # claude_toolloop:
+  #   adapter: anthropic_tool_loop  # 需 pip install anthropic, 自写最小循环(对照实验用)
+  #   model: "claude-sonnet-5[1m]"
+  #   max_turns: 60
+  #   timeout_seconds: 1800

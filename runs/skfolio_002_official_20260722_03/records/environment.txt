@@ -1,0 +1,31 @@
+# Official run environment (collected post-run)
+## python version
+Python 3.12.13
+## uname
+Darwin <HOST> 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:27:52 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T8112 arm64
+## pip freeze
+cffi==2.1.0
+clarabel==0.11.1
+cvxpy-base==1.6.0
+iniconfig==2.3.0
+joblib==1.5.3
+narwhals==2.24.0
+numpy==1.26.4
+packaging==26.2
+pandas==2.2.3
+plotly==6.9.0
+pluggy==1.6.0
+pycparser==3.0
+Pygments==2.20.0
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+pytz==2026.2
+scikit-learn==1.6.1
+scipy==1.15.2
+setuptools==83.0.0
+six==1.17.0
+# Editable Git install with no remote (skfolio==0.10.0)
+-e <WORKSPACE>/repo
+threadpoolctl==3.6.0
+tzdata==2026.3
+wheel==0.47.0

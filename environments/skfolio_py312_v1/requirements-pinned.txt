@@ -1,0 +1,13 @@
+# 依赖版本(顶层 pin,非严格 lockfile)—— 与 base 代码同期(2025-11)
+# 说明:仅锁定关键顶层包版本,未锁定传递依赖 hash。足以在本机复现本实验;
+# 若需"换机器 100% 复现",应进一步用 uv lock / pip-tools 生成完整哈希锁或提供 Dockerfile。
+# 用 Python 3.12 + 以下版本,已确认 base 触发 bug、fix 消除 bug。
+# 注意: skfolio 原 pyproject 只写下限, 直接装最新依赖会因 cvxpy API 漂移而崩溃(cp.trace),
+# 必须锁到以下同期版本。
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.15.2
+scikit-learn==1.6.1
+cvxpy-base==1.6.0
+clarabel
+plotly

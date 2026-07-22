@@ -1,0 +1,7 @@
+environment_id: skfolio_py312_v1
+repo: skfolio/skfolio
+python_version: "3.12"
+# 本机复现: venv 路径(相对 benchmark 根)。跨机器复现应改用下方 Dockerfile。
+venv: .envs/skfolio
+requirements: requirements-pinned.txt
+note: "skfolio pyproject 只写依赖下限, 必须 pin 同期版本(见 requirements-pinned.txt), 否则 cvxpy API 漂移"

@@ -1,0 +1,26 @@
+{
+  "instance_id": "skfolio_002",
+  "steps": [
+    {
+      "name": "清理污染/泄漏(.git/.github/缓存/venv)",
+      "ok": true,
+      "detail": "removed=[]"
+    },
+    {
+      "name": "归档 repo.tar.zst + checksums.json",
+      "ok": true,
+      "detail": "sha=a4ae94c84d26"
+    },
+    {
+      "name": "base-fail(修复前公开测试失败且是目标bug)",
+      "ok": true,
+      "detail": "rc=1 code_ok=True req_ok=True forbidden=[]"
+    },
+    {
+      "name": "gold-pass(官方修复 -> 隐藏测试全过)",
+      "ok": true,
+      "detail": "rc=0"
+    }
+  ],
+  "case_valid": true
+}

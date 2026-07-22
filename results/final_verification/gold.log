@@ -1,0 +1,18 @@
+$ <PROJECT_ROOT>/.envs/_runner/bin/python <PROJECT_ROOT>/pipeline/validate_case.py <PROJECT_ROOT>/cases/_verify_002_gold
+
+--- STDOUT ---
+=== 验收 _verify_002_gold (runner v0.2) ===
+[PASS] Environment installation succeeds  (rc=0)
+[PASS] Baseline reproduces target bug  (rc=1 code_ok=True req_ok=True forbidden=[])
+[PASS] Agent patch applies cleanly
+[PASS] Patch touches only allowed paths  (changed=['src/skfolio/measures/_measures.py'])
+[PASS] Patch touches no forbidden paths
+[PASS] Public tests pass  (rc=0)
+[PASS] Hidden tests pass  (rc=0)
+----------------------------------------
+FINAL RESULT: PASS (7/7 checks)
+结果已写入 results/_verify_002_gold.json
+
+--- STDERR ---
+
+--- EXIT: 0 ---

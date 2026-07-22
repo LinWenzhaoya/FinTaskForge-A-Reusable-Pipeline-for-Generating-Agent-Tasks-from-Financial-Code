@@ -1,0 +1,15 @@
+$ <PROJECT_ROOT>/.envs/_runner/bin/python <PROJECT_ROOT>/pipeline/negative_selftest.py
+
+--- STDOUT ---
+[OK] 1_install_fail: expect=FAIL got=FAIL
+[OK] 2_public_test_missing: expect=FAIL got=FAIL
+[OK] 3_patch_deletes_test: expect=FAIL got=FAIL
+[OK] 4_patch_out_of_allowlist: expect=FAIL got=FAIL
+[OK] 5_hidden_inject_nontests: expect=PASS got=PASS
+[OK] 6_metadata_invalid: expect=FAIL got=FAIL
+----------------------------------------
+负向自测: 6/6 符合预期
+
+--- STDERR ---
+
+--- EXIT: 0 ---

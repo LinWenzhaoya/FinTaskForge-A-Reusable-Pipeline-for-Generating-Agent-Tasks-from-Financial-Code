@@ -1,0 +1,28 @@
+{
+  "case_id": "skfolio_002",
+  "run_id": "skfolio_002_official_20260722_03",
+  "status": "valid_official_run",
+  "prior_invalid_runs": [
+    {"run_id": "..._01", "reason": "incorrect_agent_cwd_and_benchmark_path_exposure"},
+    {"run_id": "..._02", "reason": "killed_by_orchestrator_gate_false_positive_/tmp_symlink (0 tool calls, model had not started solving)"}
+  ],
+  "agent_runtime": "Claude Code CLI 2.1.187",
+  "requested_model": "claude-opus-4-8[1m]",
+  "resolved_model": "claude-opus-4-8[1m]",
+  "base_url": "internal proxy (ANTHROPIC_BASE_URL)",
+  "session_id": "<SESSION_ID>",
+  "started_at": "2026-07-22T08:54:43Z",
+  "finished_at": "2026-07-22T10:49:49Z",
+  "num_turns": 67,
+  "cli_exit_code": 0,
+  "task_checksum_at_run": "a7717398c52d2bb0",
+  "official_agent_patch_sha256_16": "26830fed40bd54bb",
+  "isolation": "独立临时 workspace(/tmp)+上下文隔离(cwd=workspace, 空 CLAUDE_CONFIG_DIR, 白名单环境, 无 --add-dir); 非操作系统级文件访问隔离",
+  "tools": "对 Read/Edit/Write/Bash/Glob/Grep 自动授权; 显式禁用 WebSearch/WebFetch/Task; init 事件工具列表仍含其他运行时工具(未从上下文彻底移除)",
+  "network": "仅 Prompt 级禁止联网; Bash 理论上仍可联网, 非技术断网。实际运行中联网调用仅表现为离线数据集下载超时(与修复无关)",
+  "workspace_isolated": true,
+  "grader_used_clean_base": true,
+  "final_result": "FAIL (6/7)",
+  "hidden_breakdown": {"target": "PASS", "completeness_semi_variance": "FAIL", "regression": "PASS"},
+  "note": "Opus 4.8 主动检视 semi_variance 后有意识地判定其为范围外、未改动(非疏漏); 官方 fix 两处均改。属有理据的范围判断与 grader completeness 期望相左。实验纪律: 不因结果改题。"
+}

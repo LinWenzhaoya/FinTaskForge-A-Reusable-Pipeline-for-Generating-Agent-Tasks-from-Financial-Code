@@ -1,0 +1,23 @@
+--- a/src/skfolio/optimization/convex/_mean_risk.py
++++ b/src/skfolio/optimization/convex/_mean_risk.py
+@@ -1078,8 +1078,18 @@
+                     + custom_objective * self._scale_objective
+                 )
+             case ObjectiveFunction.MAXIMIZE_RATIO:
+-                # Capture common obvious mistake before solver failure to help user
+-                if np.isscalar(self.min_weights) and self.min_weights >= 0:
++                # Capture common obvious mistake before solver failure to help user.
++                # This check is only meaningful when the ratio numerator is the
++                # actual expected return (assets' `mu`), i.e. the classic Sharpe/
++                # Sortino-like ratio. When `overwrite_expected_return` is set (e.g.
++                # MaximumDiversification, whose numerator is the weighted
++                # volatilities, unrelated to `mu`), comparing `mu` to the
++                # risk-free rate is not applicable and must be skipped.
++                if (
++                    self.overwrite_expected_return is None
++                    and np.isscalar(self.min_weights)
++                    and self.min_weights >= 0
++                ):
+                     if np.max(return_distribution.mu) - self.risk_free_rate <= 0:
+                         raise ValueError(
+                             "Cannot optimize for Maximum Ratio with your current "

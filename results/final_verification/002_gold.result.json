@@ -1,0 +1,53 @@
+{
+  "instance_id": "_verify_002_gold",
+  "runner_version": "0.2",
+  "final": "PASS",
+  "fatal_error": null,
+  "checks": [
+    {
+      "name": "Environment installation succeeds",
+      "pass": true,
+      "detail": "rc=0"
+    },
+    {
+      "name": "Baseline reproduces target bug",
+      "pass": true,
+      "detail": "rc=1 code_ok=True req_ok=True forbidden=[]"
+    },
+    {
+      "name": "Agent patch applies cleanly",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Patch touches only allowed paths",
+      "pass": true,
+      "detail": "changed=['src/skfolio/measures/_measures.py']"
+    },
+    {
+      "name": "Patch touches no forbidden paths",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Public tests pass",
+      "pass": true,
+      "detail": "rc=0"
+    },
+    {
+      "name": "Hidden tests pass",
+      "pass": true,
+      "detail": "rc=0"
+    }
+  ],
+  "timings_sec": {
+    "install": 2.4,
+    "baseline": 1.6,
+    "public": 2.1,
+    "hidden": 1.5
+  },
+  "patch_sha256_16": "be5f82194e0f280f",
+  "case_python": "<PROJECT_ROOT>/.envs/skfolio/bin/python",
+  "case_python_version": "Python 3.12.13",
+  "temp_dir_cleaned": true
+}
